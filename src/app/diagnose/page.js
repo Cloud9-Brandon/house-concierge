@@ -41,8 +41,12 @@ function TypingIndicator() {
   );
 }
 
-function FixCard({ fix }) {
-  const [completed, setCompleted] = useState(null); // null, true, false
+function FixCard({ fix, onDidntWork, onWorked }) {
+  const [completed, setCompleted] = useState(null);
+
+  const youtubeUrl = fix.video_search
+    ? `https://www.youtube.com/results?search_query=${encodeURIComponent(fix.video_search)}`
+    : null;
 
   return (
     <div className="bg-green-50 border border-green-200 rounded-xl p-5 mt-4 animate-fade-in-up">
@@ -51,14 +55,24 @@ function FixCard({ fix }) {
         <h3 className="font-semibold text-green-900">{fix.title}</h3>
       </div>
 
-      <div className="flex gap-3 text-xs text-green-700 mb-4">
+      <div className="flex flex-wrap gap-2 text-xs text-green-700 mb-4">
         {fix.time && <span className="bg-green-100 px-2 py-1 rounded-full">⏱ {fix.time}</span>}
         {fix.difficulty && <span className="bg-green-100 px-2 py-1 rounded-full">📊 {fix.difficulty}</span>}
+        {youtubeUrl && (
+          <a
+            href={youtubeUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="bg-red-50 text-red-700 px-2 py-1 rounded-full hover:bg-red-100 transition-colors"
+          >
+            ▶ Watch on YouTube
+          </a>
+        )}
       </div>
 
       {fix.tools && fix.tools.length > 0 && (
         <p className="text-sm text-green-800 mb-3">
-          <span className="font-medium">Tools needed:</span> {fix.tools.join(', ')}
+          <span className="font-medium">You&apos;ll need:</span> {fix.tools.join(', ')}
         </p>
       )}
 
@@ -78,14 +92,14 @@ function FixCard({ fix }) {
           <p className="text-sm font-medium text-green-900 mb-3">Did this solve the problem?</p>
           <div className="flex gap-2">
             <button
-              onClick={() => setCompleted(true)}
-              className="flex-1 py-2 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 transition-colors"
+              onClick={() => { setCompleted(true); onWorked?.(); }}
+              className="flex-1 py-2.5 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 transition-colors"
             >
               Yes, fixed!
             </button>
             <button
-              onClick={() => setCompleted(false)}
-              className="flex-1 py-2 bg-white text-green-700 border border-green-300 rounded-lg text-sm font-medium hover:bg-green-50 transition-colors"
+              onClick={() => { setCompleted(false); onDidntWork?.(fix.title); }}
+              className="flex-1 py-2.5 bg-white text-green-700 border border-green-300 rounded-lg text-sm font-medium hover:bg-green-50 transition-colors"
             >
               No, still broken
             </button>
@@ -97,13 +111,7 @@ function FixCard({ fix }) {
         </div>
       ) : (
         <div className="border-t border-green-200 pt-4 text-center">
-          <p className="text-green-900 text-sm mb-3">No worries — let&apos;s get you a pro.</p>
-          <Link
-            href="/get-a-pro"
-            className="inline-block bg-brand-600 text-white px-6 py-2.5 rounded-lg text-sm font-medium hover:bg-brand-700 transition-colors"
-          >
-            Find a Pro →
-          </Link>
+          <p className="text-green-700 text-sm italic">Let&apos;s try something else...</p>
         </div>
       )}
     </div>
@@ -116,7 +124,7 @@ function ProCard({ pro }) {
     <div className="bg-orange-50 border border-orange-200 rounded-xl p-5 mt-4 animate-fade-in-up">
       <div className="flex items-center gap-2 mb-3">
         <span className="text-orange-600 text-lg">🔧</span>
-        <h3 className="font-semibold text-orange-900">This one needs a professional</h3>
+        <h3 className="font-semibold text-orange-900">Time for a professional</h3>
       </div>
 
       <p className="text-sm text-orange-800 mb-3">{pro.reason}</p>
@@ -149,45 +157,73 @@ export default function DiagnosePage() {
   const [category, setCategory] = useState(null);
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
+  const [pendingImage, setPendingImage] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
-  const [fix, setFix] = useState(null);
   const [pro, setPro] = useState(null);
   const chatEndRef = useRef(null);
   const inputRef = useRef(null);
+  const fileInputRef = useRef(null);
 
-  // Auto-scroll to bottom
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, isLoading]);
 
-  // Focus input when category selected
   useEffect(() => {
-    if (category) {
-      setTimeout(() => inputRef.current?.focus(), 300);
-    }
+    if (category) setTimeout(() => inputRef.current?.focus(), 300);
   }, [category]);
 
-  const selectCategory = async (cat) => {
+  const selectCategory = (cat) => {
     setCategory(cat);
-    // Send initial greeting
-    const greeting = { role: 'assistant', content: `Hey! I can help with your ${cat.name.toLowerCase()} issue. What's going on? Describe what you're seeing — noises, leaks, error codes, anything that seems off.` };
+    const greeting = {
+      role: 'assistant',
+      content: `Hey! I can help with your ${cat.name.toLowerCase()}. Describe what's happening — noises, leaks, error codes, anything off. You can also tap the camera icon to send a photo of the issue, an error code, or the model sticker.`,
+    };
     setMessages([greeting]);
   };
 
-  const sendMessage = async () => {
-    if (!input.trim() || isLoading) return;
+  const handleImagePick = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
 
-    const userMessage = { role: 'user', content: input.trim() };
+    // Convert to base64 data URL
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      // Optionally resize/compress here to keep API costs down, but for MVP just send as-is
+      setPendingImage(reader.result);
+    };
+    reader.readAsDataURL(file);
+
+    // Clear the input so the same file can be picked again
+    e.target.value = '';
+  };
+
+  const removeImage = () => setPendingImage(null);
+
+  const sendMessage = async (overrideText) => {
+    const text = overrideText ?? input.trim();
+    if (!text && !pendingImage) return;
+    if (isLoading) return;
+
+    const userMessage = {
+      role: 'user',
+      content: text || (pendingImage ? 'Take a look at this.' : ''),
+      ...(pendingImage ? { image: pendingImage } : {}),
+    };
+
     const newMessages = [...messages, userMessage];
     setMessages(newMessages);
-    setInput('');
+    if (!overrideText) setInput('');
+    setPendingImage(null);
     setIsLoading(true);
 
     try {
-      // Send only user/assistant messages (not system)
       const chatHistory = newMessages
         .filter(m => m.role === 'user' || m.role === 'assistant')
-        .map(m => ({ role: m.role, content: m.content }));
+        .map(m => ({
+          role: m.role,
+          content: m.content,
+          ...(m.image ? { image: m.image } : {}),
+        }));
 
       const res = await fetch('/api/chat', {
         method: 'POST',
@@ -197,12 +233,10 @@ export default function DiagnosePage() {
 
       if (!res.ok) throw new Error('Failed to get response');
 
-      // Stream the response
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
       let fullText = '';
 
-      // Add placeholder assistant message
       setMessages(prev => [...prev, { role: 'assistant', content: '' }]);
 
       while (true) {
@@ -211,7 +245,6 @@ export default function DiagnosePage() {
 
         fullText += decoder.decode(value, { stream: true });
 
-        // Update the last message with streamed text (hide the JSON blocks while streaming)
         const displayText = fullText
           .replace(/%%%FIX_START%%%[\s\S]*?(%%%FIX_END%%%)?/, '')
           .replace(/%%%PRO_START%%%[\s\S]*?(%%%PRO_END%%%)?/, '')
@@ -224,15 +257,19 @@ export default function DiagnosePage() {
         });
       }
 
-      // Parse the full response for fix/pro cards
       const parsed = parseResponse(fullText);
-      if (parsed.fix) setFix(parsed.fix);
       if (parsed.pro) setPro(parsed.pro);
 
-      // Update final message with clean text
+      // Attach the fix to the last assistant message instead of using global state
+      // so we can show multiple fix cards as the conversation progresses
       setMessages(prev => {
         const updated = [...prev];
-        updated[updated.length - 1] = { role: 'assistant', content: parsed.cleanText };
+        const lastIdx = updated.length - 1;
+        updated[lastIdx] = {
+          role: 'assistant',
+          content: parsed.cleanText,
+          ...(parsed.fix ? { fix: parsed.fix } : {}),
+        };
         return updated;
       });
     } catch (error) {
@@ -244,6 +281,11 @@ export default function DiagnosePage() {
     } finally {
       setIsLoading(false);
     }
+  };
+
+  // When user says "didn't work", we continue the conversation
+  const handleDidntWork = (fixTitle) => {
+    sendMessage(`That didn't work — "${fixTitle}" didn't solve the problem. What else can we try?`);
   };
 
   const handleKeyDown = (e) => {
@@ -298,7 +340,7 @@ export default function DiagnosePage() {
       <nav className="flex-shrink-0 bg-white border-b border-gray-100">
         <div className="max-w-2xl mx-auto px-4 h-14 flex items-center justify-between">
           <button
-            onClick={() => { setCategory(null); setMessages([]); setFix(null); setPro(null); }}
+            onClick={() => { setCategory(null); setMessages([]); setPro(null); setPendingImage(null); }}
             className="font-medium text-brand-700 text-sm"
           >
             ← Back
@@ -306,7 +348,7 @@ export default function DiagnosePage() {
           <span className="font-medium text-gray-900 flex items-center gap-2">
             <span>{category.icon}</span> {category.name}
           </span>
-          <div className="w-12" /> {/* spacer */}
+          <div className="w-12" />
         </div>
       </nav>
 
@@ -314,19 +356,33 @@ export default function DiagnosePage() {
       <div className="flex-1 overflow-y-auto px-4 py-4">
         <div className="max-w-2xl mx-auto space-y-4">
           {messages.map((msg, i) => (
-            <div
-              key={i}
-              className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'} animate-fade-in-up`}
-            >
-              <div
-                className={`max-w-[85%] px-4 py-3 rounded-2xl text-sm leading-relaxed ${
-                  msg.role === 'user'
-                    ? 'bg-brand-600 text-white rounded-br-md'
-                    : 'bg-white border border-gray-200 text-gray-800 rounded-bl-md'
-                }`}
-              >
-                {msg.content}
+            <div key={i} className="animate-fade-in-up">
+              <div className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                <div
+                  className={`max-w-[85%] px-4 py-3 rounded-2xl text-sm leading-relaxed ${
+                    msg.role === 'user'
+                      ? 'bg-brand-600 text-white rounded-br-md'
+                      : 'bg-white border border-gray-200 text-gray-800 rounded-bl-md'
+                  }`}
+                >
+                  {msg.image && (
+                    <img
+                      src={msg.image}
+                      alt="Sent"
+                      className="rounded-lg mb-2 max-h-48 object-cover"
+                    />
+                  )}
+                  {msg.content && <div>{msg.content}</div>}
+                </div>
               </div>
+
+              {/* Inline FixCard right after the assistant message that proposed it */}
+              {msg.fix && (
+                <FixCard
+                  fix={msg.fix}
+                  onDidntWork={handleDidntWork}
+                />
+              )}
             </div>
           ))}
 
@@ -336,10 +392,6 @@ export default function DiagnosePage() {
             </div>
           )}
 
-          {/* Fix card */}
-          {fix && <FixCard fix={fix} />}
-
-          {/* Pro recommendation card */}
           {pro && <ProCard pro={pro} />}
 
           <div ref={chatEndRef} />
@@ -347,26 +399,57 @@ export default function DiagnosePage() {
       </div>
 
       {/* Input */}
-      {!fix && !pro && (
+      {!pro && (
         <div className="flex-shrink-0 border-t border-gray-200 bg-white p-4">
-          <div className="max-w-2xl mx-auto flex gap-2">
-            <input
-              ref={inputRef}
-              type="text"
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder="Describe what's happening..."
-              disabled={isLoading}
-              className="flex-1 px-4 py-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-brand-300 focus:border-transparent disabled:bg-gray-50"
-            />
-            <button
-              onClick={sendMessage}
-              disabled={isLoading || !input.trim()}
-              className="px-5 py-3 bg-brand-600 text-white rounded-xl text-sm font-medium hover:bg-brand-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              Send
-            </button>
+          <div className="max-w-2xl mx-auto">
+            {pendingImage && (
+              <div className="flex items-center gap-3 mb-2 p-2 bg-gray-50 rounded-lg">
+                <img src={pendingImage} alt="Preview" className="w-12 h-12 rounded object-cover" />
+                <span className="flex-1 text-xs text-gray-600">Photo attached</span>
+                <button
+                  onClick={removeImage}
+                  className="text-gray-400 hover:text-gray-600 text-lg leading-none px-2"
+                  aria-label="Remove image"
+                >
+                  ×
+                </button>
+              </div>
+            )}
+            <div className="flex gap-2">
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                capture="environment"
+                onChange={handleImagePick}
+                className="hidden"
+              />
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                disabled={isLoading}
+                aria-label="Attach photo"
+                className="px-3 py-3 bg-gray-100 text-gray-700 rounded-xl hover:bg-gray-200 transition-colors disabled:opacity-50"
+              >
+                📷
+              </button>
+              <input
+                ref={inputRef}
+                type="text"
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={handleKeyDown}
+                placeholder={pendingImage ? "Add a caption (optional)..." : "Describe what's happening..."}
+                disabled={isLoading}
+                className="flex-1 px-4 py-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-brand-300 focus:border-transparent disabled:bg-gray-50"
+              />
+              <button
+                onClick={() => sendMessage()}
+                disabled={isLoading || (!input.trim() && !pendingImage)}
+                className="px-5 py-3 bg-brand-600 text-white rounded-xl text-sm font-medium hover:bg-brand-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Send
+              </button>
+            </div>
           </div>
         </div>
       )}

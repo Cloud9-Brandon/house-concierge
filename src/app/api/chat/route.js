@@ -13,18 +13,32 @@ export async function POST(req) {
 
     const systemPrompt = getSystemPrompt(category);
 
+    // Normalize messages — text-only messages get content as string,
+    // messages with images get content as an array (OpenAI vision format)
+    const normalizedMessages = messages.map(m => {
+      if (m.image) {
+        return {
+          role: m.role,
+          content: [
+            { type: 'text', text: m.content || 'What do you see in this photo?' },
+            { type: 'image_url', image_url: { url: m.image, detail: 'auto' } },
+          ],
+        };
+      }
+      return { role: m.role, content: m.content };
+    });
+
     const response = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
+      model: 'gpt-4o-mini', // supports vision and is cheap
       messages: [
         { role: 'system', content: systemPrompt },
-        ...messages,
+        ...normalizedMessages,
       ],
       temperature: 0.7,
-      max_tokens: 600,
+      max_tokens: 700,
       stream: true,
     });
 
-    // Stream the response
     const encoder = new TextEncoder();
     const stream = new ReadableStream({
       async start(controller) {
