@@ -1,11 +1,13 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { APPLIANCE_CATEGORIES } from '@/lib/prompts';
+import { INTAKE_QUESTIONS, buildIntakeSummary, buildContextMessage } from '@/lib/intake';
 
-// Parse fix/pro blocks from AI response
+// ---- Helpers ----
+
 function parseResponse(text) {
   const fixMatch = text.match(/%%%FIX_START%%%([\s\S]*?)%%%FIX_END%%%/);
   const proMatch = text.match(/%%%PRO_START%%%([\s\S]*?)%%%PRO_END%%%/);
@@ -18,18 +20,20 @@ function parseResponse(text) {
     try {
       fix = JSON.parse(fixMatch[1].trim());
       cleanText = text.replace(fixMatch[0], '').trim();
-    } catch (e) { /* ignore parse errors */ }
+    } catch (e) { /* ignore */ }
   }
 
   if (proMatch) {
     try {
       pro = JSON.parse(proMatch[1].trim());
       cleanText = text.replace(proMatch[0], '').trim();
-    } catch (e) { /* ignore parse errors */ }
+    } catch (e) { /* ignore */ }
   }
 
   return { cleanText, fix, pro };
 }
+
+// ---- Sub-components ----
 
 function TypingIndicator() {
   return (
@@ -41,9 +45,8 @@ function TypingIndicator() {
   );
 }
 
-function FixCard({ fix, onDidntWork, onWorked }) {
+function FixCard({ fix, onDidntWork }) {
   const [completed, setCompleted] = useState(null);
-
   const youtubeUrl = fix.video_search
     ? `https://www.youtube.com/results?search_query=${encodeURIComponent(fix.video_search)}`
     : null;
@@ -92,7 +95,7 @@ function FixCard({ fix, onDidntWork, onWorked }) {
           <p className="text-sm font-medium text-green-900 mb-3">Did this solve the problem?</p>
           <div className="flex gap-2">
             <button
-              onClick={() => { setCompleted(true); onWorked?.(); }}
+              onClick={() => setCompleted(true)}
               className="flex-1 py-2.5 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 transition-colors"
             >
               Yes, fixed!
@@ -126,9 +129,7 @@ function ProCard({ pro }) {
         <span className="text-orange-600 text-lg">🔧</span>
         <h3 className="font-semibold text-orange-900">Time for a professional</h3>
       </div>
-
       <p className="text-sm text-orange-800 mb-3">{pro.reason}</p>
-
       <div className="flex gap-3 text-xs text-orange-700 mb-4">
         {pro.urgency && (
           <span className={`px-2 py-1 rounded-full ${
@@ -142,7 +143,6 @@ function ProCard({ pro }) {
           <span className="bg-orange-100 px-2 py-1 rounded-full">💰 {pro.estimated_cost}</span>
         )}
       </div>
-
       <button
         onClick={() => router.push('/get-a-pro')}
         className="w-full py-3 bg-brand-600 text-white rounded-lg font-medium hover:bg-brand-700 transition-colors"
@@ -153,51 +153,195 @@ function ProCard({ pro }) {
   );
 }
 
+function ContextPill({ categoryName, summary }) {
+  return (
+    <div className="flex justify-center mb-4 animate-fade-in-up">
+      <div className="inline-flex items-center gap-2 px-3 py-2 bg-brand-50 border border-brand-200 rounded-full text-xs text-brand-800">
+        <span>📋</span>
+        <span className="font-medium">{categoryName}</span>
+        {summary && (
+          <>
+            <span className="text-brand-300">·</span>
+            <span>{summary}</span>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ---- Main page ----
+
 export default function DiagnosePage() {
+  // 'pick' (appliance picker) → 'intake' (pre-chat questions) → 'chat'
+  const [stage, setStage] = useState('pick');
   const [category, setCategory] = useState(null);
+  const [intakeStep, setIntakeStep] = useState(0);
+  const [intakeAnswers, setIntakeAnswers] = useState({});
+
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [pendingImage, setPendingImage] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
   const [pro, setPro] = useState(null);
+
   const chatEndRef = useRef(null);
   const inputRef = useRef(null);
   const fileInputRef = useRef(null);
+  const greetingTriggeredRef = useRef(false);
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, isLoading]);
 
   useEffect(() => {
-    if (category) setTimeout(() => inputRef.current?.focus(), 300);
-  }, [category]);
+    if (stage === 'chat') setTimeout(() => inputRef.current?.focus(), 300);
+  }, [stage]);
+
+  // ---- Stage transitions ----
 
   const selectCategory = (cat) => {
     setCategory(cat);
-    const greeting = {
-      role: 'assistant',
-      content: `Hey! I can help with your ${cat.name.toLowerCase()}. Describe what's happening — noises, leaks, error codes, anything off. You can also tap the camera icon to send a photo of the issue, an error code, or the model sticker.`,
-    };
-    setMessages([greeting]);
+    const hasIntake = INTAKE_QUESTIONS[cat.id]?.length > 0;
+    if (hasIntake) {
+      setStage('intake');
+      setIntakeStep(0);
+      setIntakeAnswers({});
+    } else {
+      startChat(cat, {});
+    }
   };
 
-  const handleImagePick = async (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  const answerIntake = (questionId, answer) => {
+    const newAnswers = { ...intakeAnswers, [questionId]: answer };
+    setIntakeAnswers(newAnswers);
 
-    // Convert to base64 data URL
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      // Optionally resize/compress here to keep API costs down, but for MVP just send as-is
-      setPendingImage(reader.result);
-    };
-    reader.readAsDataURL(file);
-
-    // Clear the input so the same file can be picked again
-    e.target.value = '';
+    const questions = INTAKE_QUESTIONS[category.id];
+    if (intakeStep + 1 < questions.length) {
+      setIntakeStep(intakeStep + 1);
+    } else {
+      startChat(category, newAnswers);
+    }
   };
 
-  const removeImage = () => setPendingImage(null);
+  const skipIntake = () => {
+    startChat(category, intakeAnswers);
+  };
+
+  const goBackInIntake = () => {
+    if (intakeStep > 0) {
+      setIntakeStep(intakeStep - 1);
+    } else {
+      setStage('pick');
+      setCategory(null);
+      setIntakeAnswers({});
+    }
+  };
+
+  const startChat = (cat, answers) => {
+    setStage('chat');
+    setMessages([]);
+    greetingTriggeredRef.current = false;
+
+    const contextMsg = buildContextMessage(cat.name, answers);
+    if (contextMsg) {
+      // Send a hidden context message to the AI to bootstrap the conversation
+      const initialMsg = {
+        role: 'user',
+        content: contextMsg,
+        isContext: true,
+        contextSummary: buildIntakeSummary(answers),
+        contextCategory: cat.name,
+      };
+      setMessages([initialMsg]);
+      // Trigger the AI's opening response
+      setTimeout(() => triggerAIResponse([initialMsg], cat.id), 50);
+    } else {
+      // No intake answers — show a simple greeting
+      setMessages([{
+        role: 'assistant',
+        content: `Hey! I can help with your ${cat.name.toLowerCase()}. Describe what's happening — noises, leaks, error codes, anything off. You can also tap the camera icon to send a photo of the issue, an error code, or the model sticker.`,
+      }]);
+    }
+  };
+
+  const resetAll = () => {
+    setStage('pick');
+    setCategory(null);
+    setIntakeStep(0);
+    setIntakeAnswers({});
+    setMessages([]);
+    setPro(null);
+    setPendingImage(null);
+    greetingTriggeredRef.current = false;
+  };
+
+  // ---- Chat API ----
+
+  const triggerAIResponse = useCallback(async (messageList, categoryId) => {
+    if (greetingTriggeredRef.current) return;
+    greetingTriggeredRef.current = true;
+    setIsLoading(true);
+
+    try {
+      const chatHistory = messageList.map(m => ({
+        role: m.role,
+        content: m.content,
+        ...(m.image ? { image: m.image } : {}),
+      }));
+
+      const res = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messages: chatHistory, category: categoryId }),
+      });
+
+      if (!res.ok) throw new Error('Failed to get response');
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let fullText = '';
+
+      setMessages(prev => [...prev, { role: 'assistant', content: '' }]);
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        fullText += decoder.decode(value, { stream: true });
+        const displayText = fullText
+          .replace(/%%%FIX_START%%%[\s\S]*?(%%%FIX_END%%%)?/, '')
+          .replace(/%%%PRO_START%%%[\s\S]*?(%%%PRO_END%%%)?/, '')
+          .trim();
+        setMessages(prev => {
+          const updated = [...prev];
+          updated[updated.length - 1] = { role: 'assistant', content: displayText };
+          return updated;
+        });
+      }
+
+      const parsed = parseResponse(fullText);
+      if (parsed.pro) setPro(parsed.pro);
+
+      setMessages(prev => {
+        const updated = [...prev];
+        const lastIdx = updated.length - 1;
+        updated[lastIdx] = {
+          role: 'assistant',
+          content: parsed.cleanText,
+          ...(parsed.fix ? { fix: parsed.fix } : {}),
+        };
+        return updated;
+      });
+    } catch (error) {
+      console.error('Chat error:', error);
+      setMessages(prev => [...prev, {
+        role: 'assistant',
+        content: 'Sorry, something went wrong. Please try again.',
+      }]);
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
 
   const sendMessage = async (overrideText) => {
     const text = overrideText ?? input.trim();
@@ -242,14 +386,11 @@ export default function DiagnosePage() {
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
-
         fullText += decoder.decode(value, { stream: true });
-
         const displayText = fullText
           .replace(/%%%FIX_START%%%[\s\S]*?(%%%FIX_END%%%)?/, '')
           .replace(/%%%PRO_START%%%[\s\S]*?(%%%PRO_END%%%)?/, '')
           .trim();
-
         setMessages(prev => {
           const updated = [...prev];
           updated[updated.length - 1] = { role: 'assistant', content: displayText };
@@ -260,8 +401,6 @@ export default function DiagnosePage() {
       const parsed = parseResponse(fullText);
       if (parsed.pro) setPro(parsed.pro);
 
-      // Attach the fix to the last assistant message instead of using global state
-      // so we can show multiple fix cards as the conversation progresses
       setMessages(prev => {
         const updated = [...prev];
         const lastIdx = updated.length - 1;
@@ -274,19 +413,29 @@ export default function DiagnosePage() {
       });
     } catch (error) {
       console.error('Chat error:', error);
-      setMessages(prev => [
-        ...prev,
-        { role: 'assistant', content: 'Sorry, something went wrong. Please try again.' },
-      ]);
+      setMessages(prev => [...prev, {
+        role: 'assistant',
+        content: 'Sorry, something went wrong. Please try again.',
+      }]);
     } finally {
       setIsLoading(false);
     }
   };
 
-  // When user says "didn't work", we continue the conversation
   const handleDidntWork = (fixTitle) => {
     sendMessage(`That didn't work — "${fixTitle}" didn't solve the problem. What else can we try?`);
   };
+
+  const handleImagePick = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onloadend = () => setPendingImage(reader.result);
+    reader.readAsDataURL(file);
+    e.target.value = '';
+  };
+
+  const removeImage = () => setPendingImage(null);
 
   const handleKeyDown = (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -295,8 +444,10 @@ export default function DiagnosePage() {
     }
   };
 
-  // Appliance picker view
-  if (!category) {
+  // ---- Views ----
+
+  // 1. Appliance picker
+  if (stage === 'pick') {
     return (
       <div className="min-h-screen bg-gray-50">
         <nav className="bg-white border-b border-gray-100">
@@ -304,11 +455,9 @@ export default function DiagnosePage() {
             <Link href="/" className="font-bold text-brand-700">← House Concierge</Link>
           </div>
         </nav>
-
         <div className="max-w-2xl mx-auto px-4 py-8">
           <h1 className="text-2xl font-bold text-gray-900 mb-2">What&apos;s broken?</h1>
           <p className="text-gray-500 mb-6">Pick the appliance and we&apos;ll start diagnosing.</p>
-
           <div className="grid grid-cols-2 gap-3">
             {APPLIANCE_CATEGORIES.map((cat) => (
               <button
@@ -322,7 +471,6 @@ export default function DiagnosePage() {
               </button>
             ))}
           </div>
-
           <div className="mt-6 p-4 bg-white border border-gray-200 rounded-xl">
             <p className="text-sm text-gray-500 text-center">
               Don&apos;t see your appliance? <Link href="/get-a-pro" className="text-brand-600 font-medium hover:underline">Skip to getting a pro →</Link>
@@ -333,16 +481,82 @@ export default function DiagnosePage() {
     );
   }
 
-  // Chat view
+  // 2. Intake questions
+  if (stage === 'intake') {
+    const questions = INTAKE_QUESTIONS[category.id];
+    const currentQ = questions[intakeStep];
+    return (
+      <div className="min-h-screen bg-gray-50 flex flex-col">
+        <nav className="bg-white border-b border-gray-100">
+          <div className="max-w-2xl mx-auto px-4 h-14 flex items-center justify-between">
+            <button onClick={goBackInIntake} className="font-medium text-brand-700 text-sm">
+              ← Back
+            </button>
+            <span className="font-medium text-gray-900 flex items-center gap-2">
+              <span>{category.icon}</span> {category.name}
+            </span>
+            <div className="w-12" />
+          </div>
+        </nav>
+
+        <div className="flex-1 flex items-start justify-center px-4 py-8">
+          <div className="max-w-md w-full">
+            {/* Progress dots */}
+            <div className="flex justify-center gap-2 mb-8">
+              {questions.map((_, i) => (
+                <div
+                  key={i}
+                  className={`h-2 rounded-full transition-all ${
+                    i < intakeStep ? 'w-8 bg-brand-600' :
+                    i === intakeStep ? 'w-8 bg-brand-400' :
+                    'w-2 bg-gray-200'
+                  }`}
+                />
+              ))}
+            </div>
+
+            <h2 className="text-xl sm:text-2xl font-semibold text-gray-900 mb-1 text-center">
+              {currentQ.question}
+            </h2>
+            <p className="text-sm text-gray-400 text-center mb-6">
+              Step {intakeStep + 1} of {questions.length}
+            </p>
+
+            <div className="space-y-2">
+              {currentQ.options.map((option) => (
+                <button
+                  key={option}
+                  onClick={() => answerIntake(currentQ.id, option)}
+                  className="w-full text-left px-4 py-3.5 bg-white border border-gray-200 rounded-xl hover:border-brand-400 hover:bg-brand-50 active:scale-[0.99] transition-all text-sm font-medium text-gray-800"
+                >
+                  {option}
+                </button>
+              ))}
+            </div>
+
+            <div className="mt-6 text-center">
+              <button
+                onClick={skipIntake}
+                className="text-sm text-gray-400 hover:text-gray-600 transition-colors"
+              >
+                Skip questions and just chat →
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // 3. Chat
+  const contextMessage = messages.find(m => m.isContext);
+  const visibleMessages = messages.filter(m => !m.isContext);
+
   return (
     <div className="flex flex-col h-screen bg-gray-50">
-      {/* Header */}
       <nav className="flex-shrink-0 bg-white border-b border-gray-100">
         <div className="max-w-2xl mx-auto px-4 h-14 flex items-center justify-between">
-          <button
-            onClick={() => { setCategory(null); setMessages([]); setPro(null); setPendingImage(null); }}
-            className="font-medium text-brand-700 text-sm"
-          >
+          <button onClick={resetAll} className="font-medium text-brand-700 text-sm">
             ← Back
           </button>
           <span className="font-medium text-gray-900 flex items-center gap-2">
@@ -352,53 +566,55 @@ export default function DiagnosePage() {
         </div>
       </nav>
 
-      {/* Messages */}
       <div className="flex-1 overflow-y-auto px-4 py-4">
-        <div className="max-w-2xl mx-auto space-y-4">
-          {messages.map((msg, i) => (
-            <div key={i} className="animate-fade-in-up">
-              <div className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                <div
-                  className={`max-w-[85%] px-4 py-3 rounded-2xl text-sm leading-relaxed ${
-                    msg.role === 'user'
-                      ? 'bg-brand-600 text-white rounded-br-md'
-                      : 'bg-white border border-gray-200 text-gray-800 rounded-bl-md'
-                  }`}
-                >
-                  {msg.image && (
-                    <img
-                      src={msg.image}
-                      alt="Sent"
-                      className="rounded-lg mb-2 max-h-48 object-cover"
-                    />
-                  )}
-                  {msg.content && <div>{msg.content}</div>}
-                </div>
-              </div>
-
-              {/* Inline FixCard right after the assistant message that proposed it */}
-              {msg.fix && (
-                <FixCard
-                  fix={msg.fix}
-                  onDidntWork={handleDidntWork}
-                />
-              )}
-            </div>
-          ))}
-
-          {isLoading && messages[messages.length - 1]?.role === 'user' && (
-            <div className="flex justify-start">
-              <TypingIndicator />
-            </div>
+        <div className="max-w-2xl mx-auto">
+          {contextMessage && (
+            <ContextPill
+              categoryName={contextMessage.contextCategory}
+              summary={contextMessage.contextSummary}
+            />
           )}
 
-          {pro && <ProCard pro={pro} />}
+          <div className="space-y-4">
+            {visibleMessages.map((msg, i) => (
+              <div key={i} className="animate-fade-in-up">
+                <div className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                  <div
+                    className={`max-w-[85%] px-4 py-3 rounded-2xl text-sm leading-relaxed ${
+                      msg.role === 'user'
+                        ? 'bg-brand-600 text-white rounded-br-md'
+                        : 'bg-white border border-gray-200 text-gray-800 rounded-bl-md'
+                    }`}
+                  >
+                    {msg.image && (
+                      <img
+                        src={msg.image}
+                        alt="Sent"
+                        className="rounded-lg mb-2 max-h-48 object-cover"
+                      />
+                    )}
+                    {msg.content && <div>{msg.content}</div>}
+                  </div>
+                </div>
+                {msg.fix && (
+                  <FixCard fix={msg.fix} onDidntWork={handleDidntWork} />
+                )}
+              </div>
+            ))}
 
-          <div ref={chatEndRef} />
+            {isLoading && (visibleMessages.length === 0 || visibleMessages[visibleMessages.length - 1]?.role === 'user') && (
+              <div className="flex justify-start">
+                <TypingIndicator />
+              </div>
+            )}
+
+            {pro && <ProCard pro={pro} />}
+
+            <div ref={chatEndRef} />
+          </div>
         </div>
       </div>
 
-      {/* Input */}
       {!pro && (
         <div className="flex-shrink-0 border-t border-gray-200 bg-white p-4">
           <div className="max-w-2xl mx-auto">
