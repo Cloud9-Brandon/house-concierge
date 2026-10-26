@@ -8,7 +8,16 @@ import { INTAKE_QUESTIONS, buildIntakeSummary, buildContextMessage } from '@/lib
 
 // ---- Helpers ----
 
-function parseResponse(text) {
+function splitUsage(text) {
+  const m = text.match(/%%%USAGE%%%(\{[\s\S]*\})\s*$/);
+  if (!m) return { text: text.replace(/%%%USAGE%%%[\s\S]*$/, ''), usage: null };
+  let usage = null;
+  try { usage = JSON.parse(m[1]); } catch (e) { /* ignore */ }
+  return { text: text.slice(0, m.index), usage };
+}
+
+function parseResponse(raw) {
+  const { text, usage } = splitUsage(raw);
   const fixMatch = text.match(/%%%FIX_START%%%([\s\S]*?)%%%FIX_END%%%/);
   const proMatch = text.match(/%%%PRO_START%%%([\s\S]*?)%%%PRO_END%%%/);
 
@@ -30,7 +39,7 @@ function parseResponse(text) {
     } catch (e) { /* ignore */ }
   }
 
-  return { cleanText, fix, pro };
+  return { cleanText, fix, pro, usage };
 }
 
 // ---- Sub-components ----
@@ -309,6 +318,7 @@ export default function DiagnosePage() {
         if (done) break;
         fullText += decoder.decode(value, { stream: true });
         const displayText = fullText
+          .replace(/%%%USAGE%%%[\s\S]*$/, '')
           .replace(/%%%FIX_START%%%[\s\S]*?(%%%FIX_END%%%)?/, '')
           .replace(/%%%PRO_START%%%[\s\S]*?(%%%PRO_END%%%)?/, '')
           .trim();
@@ -329,6 +339,7 @@ export default function DiagnosePage() {
           role: 'assistant',
           content: parsed.cleanText,
           ...(parsed.fix ? { fix: parsed.fix } : {}),
+          ...(parsed.usage ? { usage: parsed.usage } : {}),
         };
         return updated;
       });
@@ -388,6 +399,7 @@ export default function DiagnosePage() {
         if (done) break;
         fullText += decoder.decode(value, { stream: true });
         const displayText = fullText
+          .replace(/%%%USAGE%%%[\s\S]*$/, '')
           .replace(/%%%FIX_START%%%[\s\S]*?(%%%FIX_END%%%)?/, '')
           .replace(/%%%PRO_START%%%[\s\S]*?(%%%PRO_END%%%)?/, '')
           .trim();
@@ -408,6 +420,7 @@ export default function DiagnosePage() {
           role: 'assistant',
           content: parsed.cleanText,
           ...(parsed.fix ? { fix: parsed.fix } : {}),
+          ...(parsed.usage ? { usage: parsed.usage } : {}),
         };
         return updated;
       });
@@ -596,6 +609,11 @@ export default function DiagnosePage() {
                     {msg.content && <div>{msg.content}</div>}
                   </div>
                 </div>
+                {msg.usage && (
+                  <p className="mt-1 ml-1 text-[11px] text-gray-400" data-testid="token-usage">
+                    {msg.usage.model} · {msg.usage.input} in ({msg.usage.cached} cached) · {msg.usage.output} out tokens
+                  </p>
+                )}
                 {msg.fix && (
                   <FixCard fix={msg.fix} onDidntWork={handleDidntWork} />
                 )}

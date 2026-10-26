@@ -26,7 +26,7 @@ Follow these steps to get your app live. Total time: ~30 minutes. Total cost: ~$
 
 1. Go to [github.com](https://github.com) and sign up / log in
 2. Click **New Repository** (the green button or the `+` icon)
-3. Name it `house-concierge`, keep it **Private**, click **Create**
+3. Name it `house-concierge`, keep it Public (or Private with zlisto added as a collaborator), click **Create**
 4. Open Terminal on your Mac and run these commands:
 
 ```bash
@@ -62,7 +62,7 @@ git push -u origin main
      |------|-------|
      | `OPENAI_API_KEY` | `sk-your-actual-key` |
      | `RESEND_API_KEY` | `re_your-actual-key` |
-     | `NOTIFY_EMAIL` | `s.brandonxf@gmail.com` |
+     | `NOTIFY_EMAIL` | `you@example.com` |
 5. Click **Deploy**
 6. Wait 1-2 minutes — you'll get a URL like `house-concierge.vercel.app`
 

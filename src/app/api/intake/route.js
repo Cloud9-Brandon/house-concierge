@@ -1,9 +1,16 @@
 import { Resend } from 'resend';
 
+const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
 export async function POST(req) {
   try {
     const data = await req.json();
     const { name, phone, zip, appliance, issue, timePreference } = data;
+    for (const v of [name, phone, zip, appliance, issue, timePreference]) {
+      if (v != null && (typeof v !== 'string' || v.length > 1000)) {
+        return Response.json({ error: 'Invalid input' }, { status: 400 });
+      }
+    }
 
     if (!name || !phone || !zip || !appliance || !issue) {
       return Response.json({ error: 'Missing required fields' }, { status: 400 });
@@ -21,22 +28,22 @@ export async function POST(req) {
     }
 
     // Send email notification
-    if (process.env.RESEND_API_KEY && process.env.RESEND_API_KEY !== 're_your-key-here') {
+    if (process.env.RESEND_API_KEY && process.env.NOTIFY_EMAIL && process.env.RESEND_API_KEY !== 're_your-key-here') {
       try {
         const resend = new Resend(process.env.RESEND_API_KEY);
         await resend.emails.send({
           from: 'House Concierge <onboarding@resend.dev>',
-          to: process.env.NOTIFY_EMAIL || 's.brandonxf@gmail.com',
-          subject: `🔧 New Pro Request: ${appliance} — ${name}`,
+          to: process.env.NOTIFY_EMAIL,
+          subject: `🔧 New Pro Request: ${esc(appliance)} — ${esc(name)}`,
           html: `
             <h2>New Pro Intake Request</h2>
             <table style="border-collapse: collapse; width: 100%;">
-              <tr><td style="padding: 8px; font-weight: bold;">Name</td><td style="padding: 8px;">${name}</td></tr>
-              <tr><td style="padding: 8px; font-weight: bold;">Phone</td><td style="padding: 8px;"><a href="tel:${phone}">${phone}</a></td></tr>
-              <tr><td style="padding: 8px; font-weight: bold;">ZIP Code</td><td style="padding: 8px;">${zip}</td></tr>
-              <tr><td style="padding: 8px; font-weight: bold;">Appliance</td><td style="padding: 8px;">${appliance}</td></tr>
-              <tr><td style="padding: 8px; font-weight: bold;">Issue</td><td style="padding: 8px;">${issue}</td></tr>
-              <tr><td style="padding: 8px; font-weight: bold;">Preferred Time</td><td style="padding: 8px;">${timePreference || 'Any'}</td></tr>
+              <tr><td style="padding: 8px; font-weight: bold;">Name</td><td style="padding: 8px;">${esc(name)}</td></tr>
+              <tr><td style="padding: 8px; font-weight: bold;">Phone</td><td style="padding: 8px;"><a href="tel:${esc(phone)}">${esc(phone)}</a></td></tr>
+              <tr><td style="padding: 8px; font-weight: bold;">ZIP Code</td><td style="padding: 8px;">${esc(zip)}</td></tr>
+              <tr><td style="padding: 8px; font-weight: bold;">Appliance</td><td style="padding: 8px;">${esc(appliance)}</td></tr>
+              <tr><td style="padding: 8px; font-weight: bold;">Issue</td><td style="padding: 8px;">${esc(issue)}</td></tr>
+              <tr><td style="padding: 8px; font-weight: bold;">Preferred Time</td><td style="padding: 8px;">${esc(timePreference || 'Any')}</td></tr>
               <tr><td style="padding: 8px; font-weight: bold;">Submitted</td><td style="padding: 8px;">${new Date().toLocaleString('en-US', { timeZone: 'America/Chicago' })}</td></tr>
             </table>
             <br/>
