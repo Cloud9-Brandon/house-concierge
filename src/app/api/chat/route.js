@@ -6,6 +6,33 @@ import { checkRate, validateMessages, looksLikeInjection, REFUSAL_INJECTION } fr
 
 const MAX_TOOL_ROUNDS = 3; // hard cap on tool-calling rounds per reply
 
+// With reasoning_effort 'none', gpt-6-luna tends to write its answer twice when
+// tools are attached. So only attach tools on turns where one could be needed:
+// an error code, or the user asking about cost / a pro / a failed fix.
+const CODE_RE = /\b(error|code|blink|flash|light)\b|\b[A-Za-z]{1,3}[- ]?\d{1,3}[A-Za-z]?\b/i;
+const PRO_RE = /(\bpro\b|technician|plumber|repair ?(man|person)|\bcost\b|price|worth|replace|how much)/i;
+const FAILED_RE = /(still (broken|not working|won'?t|doesn'?t)|didn'?t work|did not work|no luck|nothing (helps|worked))/i;
+const wantsTools = msgs => {
+  const last = [...msgs].reverse().find(m => m.role === 'user')?.content || '';
+  const turns = msgs.filter(m => m.role === 'user').length;
+  // a failed-fix report only needs the cost tool once a few fixes have been tried
+  return CODE_RE.test(last) || PRO_RE.test(last) || (turns >= 3 && FAILED_RE.test(last));
+};
+
+// gpt-6-luna sometimes writes the whole answer twice. If the opening of the
+// reply reappears later, keep one copy (prefer the copy that has the FIX/PRO block).
+function dedupeRepeat(text) {
+  const t = text.trim();
+  if (t.length < 80) return t;
+  const key = t.slice(0, 25);
+  const idx = t.indexOf(key, 25);
+  if (idx < 0) return t;
+  const first = t.slice(0, idx).trim();
+  const second = t.slice(idx).trim();
+  const hasBlock = x => /%%%(FIX|PRO)_START%%%/.test(x);
+  return hasBlock(second) && !hasBlock(first) ? second : first;
+}
+
 const textResponse = (text, status = 200) =>
   new Response(text, { status, headers: { 'Content-Type': 'text/plain; charset=utf-8' } });
 
@@ -62,6 +89,7 @@ export async function POST(req) {
       }
       return { role: m.role, content: m.content };
     });
+    const toolsWanted = wantsTools(messages);
     const history = [{ role: 'system', content: systemPrompt }, ...convo];
 
     const { client, model, provider } = getLLM();
@@ -76,7 +104,7 @@ export async function POST(req) {
 
           // Step 2 (diagnostician): tool-calling loop, hard-capped to prevent runaway loops.
           for (let round = 0; round <= MAX_TOOL_ROUNDS; round++) {
-            const useTools = round < MAX_TOOL_ROUNDS;
+            const useTools = round < MAX_TOOL_ROUNDS && toolsWanted;
             const response = await client.chat.completions.create({
               model,
               messages: history,
@@ -99,7 +127,10 @@ export async function POST(req) {
               }
               const delta = chunk.choices?.[0]?.delta;
               if (!delta) continue;
-              if (delta.content) { content += delta.content; send(delta.content); }
+              if (delta.content) {
+                content += delta.content;
+                if (!useTools) send(delta.content); // with tools attached, buffer so we can de-duplicate
+              }
               for (const tc of delta.tool_calls || []) {
                 const c = (calls[tc.index] ||= { id: '', name: '', args: '' });
                 if (tc.id) c.id = tc.id;
@@ -109,11 +140,11 @@ export async function POST(req) {
             }
 
             const toolCalls = Object.values(calls);
-            if (toolCalls.length === 0) break;
+            if (toolCalls.length === 0) {
+              if (useTools && content) send(dedupeRepeat(content));
+              break;
+            }
 
-            // This round ended in a tool call: tell the client to discard any
-            // preamble text already streamed, so the final answer isn't duplicated.
-            if (content) send('%%%RESET%%%');
 
             history.push({
               role: 'assistant',
