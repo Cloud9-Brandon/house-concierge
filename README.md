@@ -30,5 +30,10 @@ The app looks for `.env` in the repo folder first, then **one folder above the r
 - `max_tokens` 700 per reply; HTML-escaped email fields
 - Token usage per reply is shown under each AI message and logged to the server console as `[usage]`
 
+## Agent design
+- **Safety triage** (deterministic, runs first): flags gas, electrical fire, water near power, and carbon monoxide before the model sees the message and forces an evacuate/call-a-pro response.
+- **Diagnostic agent** (`gpt-6-luna`, tool-calling loop, max 3 tool rounds per reply) with two tools: `lookup_error_code` (reference table, never guesses a code) and `estimate_repair_cost` (DIY vs pro vs replacement ranges).
+- **Pro handoff**: when a pro is needed the agent writes a short diagnosis summary that is prefilled into the pro request form and included in the notification. Pro matching is manual during the Austin pilot.
+
 ## Stack
 Next.js 14, Tailwind, OpenAI SDK (via Portkey or OpenAI), Resend.

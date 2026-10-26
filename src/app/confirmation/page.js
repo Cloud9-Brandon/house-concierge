@@ -14,8 +14,8 @@ export default function ConfirmationPage() {
           <h1 className="text-2xl font-bold text-gray-900 mb-2">Request received!</h1>
 
           <p className="text-gray-600 mb-6">
-            We&apos;re finding you a vetted pro right now.
-            We&apos;ll text you within an hour with their details, pricing, and availability.
+            We&apos;ve got your request and your AI diagnosis summary.
+            During our Austin pilot, a person on our team looks for a local pro and will text you, usually within a few hours.
           </p>
 
           <div className="bg-gray-50 rounded-xl p-4 mb-6 text-left">
@@ -23,11 +23,11 @@ export default function ConfirmationPage() {
             <ol className="text-sm text-gray-600 space-y-2">
               <li className="flex gap-2">
                 <span className="text-brand-600 font-medium">1.</span>
-                We match you with a trusted local expert
+                We review your request and look for a local pro
               </li>
               <li className="flex gap-2">
                 <span className="text-brand-600 font-medium">2.</span>
-                You&apos;ll get a text with their info and estimated pricing
+                You&apos;ll get a text with a pro&apos;s info and an estimated price
               </li>
               <li className="flex gap-2">
                 <span className="text-brand-600 font-medium">3.</span>

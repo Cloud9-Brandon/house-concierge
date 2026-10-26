@@ -110,7 +110,7 @@ export default function GetAProPage() {
       <div className="max-w-lg mx-auto px-4 py-8">
         <h1 className="text-2xl font-bold text-gray-900 mb-2">Get matched with a pro</h1>
         <p className="text-gray-500 text-sm mb-6">
-          Tell us about the job and we&apos;ll text you within an hour with a vetted local expert.
+          Tell us about the job and we&apos;ll look for a local pro and text you, usually within a few hours (Austin pilot).
         </p>
 
         {zipError && (
@@ -237,7 +237,7 @@ export default function GetAProPage() {
           </button>
 
           <p className="text-xs text-gray-400 text-center">
-            We&apos;ll text you within an hour. No spam, ever.
+            We&apos;ll text you, usually within a few hours. No spam, ever.
           </p>
         </form>
       </div>

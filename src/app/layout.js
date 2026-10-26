@@ -2,7 +2,7 @@ import './globals.css';
 
 export const metadata = {
   title: 'House Concierge — Fix It or Find a Pro',
-  description: 'AI-powered appliance diagnosis. Get a step-by-step fix or a vetted local pro in minutes.',
+  description: 'AI-powered appliance diagnosis. Get a step-by-step fix, or help finding a local pro.',
   viewport: 'width=device-width, initial-scale=1, maximum-scale=1',
 };
 

@@ -65,7 +65,7 @@ export async function POST(req) {
     return Response.json({
       success: true,
       waitlist: false,
-      message: 'Request received! We\'ll text you within an hour with a vetted pro.',
+      message: 'Request received! We\'ll text you with a local pro, usually within a few hours.',
     });
   } catch (error) {
     console.error('Intake API error:', error);

@@ -17,7 +17,7 @@ const FEATURES = [
   {
     icon: '✅',
     title: 'Fix It or Find a Pro',
-    desc: 'Get step-by-step DIY instructions, or we\'ll match you with a vetted local pro.',
+    desc: 'Get step-by-step DIY instructions, or we\'ll help you find a local pro (Austin pilot).',
   },
 ];
 
@@ -65,7 +65,7 @@ export default function Home() {
           </h1>
           <p className="text-lg text-gray-600 mb-8 max-w-lg mx-auto">
             Our AI diagnoses the problem and walks you through the fix.
-            If it needs a pro, we&apos;ll match you with a vetted local expert.
+            If it needs a pro, we&apos;ll help you find a local pro (Austin pilot).
           </p>
           <Link
             href="/diagnose"
