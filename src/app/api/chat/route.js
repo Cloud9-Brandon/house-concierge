@@ -111,6 +111,10 @@ export async function POST(req) {
             const toolCalls = Object.values(calls);
             if (toolCalls.length === 0) break;
 
+            // This round ended in a tool call: tell the client to discard any
+            // preamble text already streamed, so the final answer isn't duplicated.
+            if (content) send('%%%RESET%%%');
+
             history.push({
               role: 'assistant',
               content: content || null,

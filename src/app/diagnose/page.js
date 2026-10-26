@@ -8,6 +8,8 @@ import { INTAKE_QUESTIONS, buildIntakeSummary, buildContextMessage } from '@/lib
 
 // ---- Helpers ----
 
+const afterReset = t => t.split('%%%RESET%%%').pop();
+
 function splitUsage(text) {
   const m = text.match(/%%%USAGE%%%(\{[\s\S]*\})\s*$/);
   if (!m) return { text: text.replace(/%%%USAGE%%%[\s\S]*$/, ''), usage: null };
@@ -33,7 +35,8 @@ const TOOL_LABELS = {
 
 function parseResponse(raw) {
   const split = splitUsage(raw);
-  const { text, tools } = splitTools(split.text);
+  const { tools } = splitTools(split.text); // tool chips come from the whole stream
+  const { text } = splitTools(afterReset(split.text));
   const usage = split.usage;
   const fixMatch = text.match(/%%%FIX_START%%%([\s\S]*?)%%%FIX_END%%%/);
   const proMatch = text.match(/%%%PRO_START%%%([\s\S]*?)%%%PRO_END%%%/);
@@ -361,7 +364,7 @@ export default function DiagnosePage() {
         const { done, value } = await reader.read();
         if (done) break;
         fullText += decoder.decode(value, { stream: true });
-        const displayText = fullText
+        const displayText = afterReset(fullText)
           .replace(/%%%USAGE%%%[\s\S]*$/, '')
           .replace(/%%%TOOL%%%[^\n]*\n?/g, '')
           .replace(/%%%FIX_START%%%[\s\S]*?(%%%FIX_END%%%)?/, '')
@@ -444,7 +447,7 @@ export default function DiagnosePage() {
         const { done, value } = await reader.read();
         if (done) break;
         fullText += decoder.decode(value, { stream: true });
-        const displayText = fullText
+        const displayText = afterReset(fullText)
           .replace(/%%%USAGE%%%[\s\S]*$/, '')
           .replace(/%%%TOOL%%%[^\n]*\n?/g, '')
           .replace(/%%%FIX_START%%%[\s\S]*?(%%%FIX_END%%%)?/, '')
