@@ -1,6 +1,6 @@
 # House Concierge
 
-**Live app: https://house-concierge.vercel.app/**
+**Runs locally** (see below). Repo: https://github.com/Cloud9-Brandon/house-concierge
 
 AI diagnosis for broken home appliances (dishwasher, fridge, washer/dryer, oven, HVAC, water heater). An agent walks you through targeted questions and photo-based checks, proposes DIY fixes (with YouTube links), and escalates to a vetted local pro (Austin, TX pilot) when DIY is unsafe or has failed.
 
@@ -9,7 +9,7 @@ AI diagnosis for broken home appliances (dishwasher, fridge, washer/dryer, oven,
 Requires Node 18+.
 
 ```bash
-git clone https://github.com/sbrandonxf-design/house-concierge
+git clone https://github.com/Cloud9-Brandon/house-concierge
 cd house-concierge
 npm install
 cp .env.example .env     # then fill in a key (see below)

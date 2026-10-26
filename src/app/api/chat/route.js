@@ -57,8 +57,10 @@ export async function POST(req) {
         { role: 'system', content: systemPrompt },
         ...normalizedMessages,
       ],
-      temperature: 0.7,
-      max_tokens: 700,
+      // gpt-6-luna (via Portkey) rejects max_tokens and a custom temperature
+      ...(provider === 'portkey'
+        ? { max_completion_tokens: 1500 }
+        : { temperature: 0.7, max_tokens: 700 }),
       stream: true,
     });
 
