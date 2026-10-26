@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 
@@ -31,6 +31,20 @@ export default function GetAProPage() {
     issue: '',
     timePreference: '',
   });
+  const [handoff, setHandoff] = useState('');
+  useEffect(() => {
+    try {
+      const h = JSON.parse(sessionStorage.getItem('hc_handoff') || 'null');
+      if (h) {
+        setHandoff(h.summary || '');
+        setForm(prev => ({
+          ...prev,
+          appliance: APPLIANCE_OPTIONS.includes(h.appliance) ? h.appliance : prev.appliance,
+          issue: prev.issue || (h.summary || '').slice(0, 300),
+        }));
+      }
+    } catch (e) { /* ignore */ }
+  }, []);
   const [errors, setErrors] = useState({});
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [zipError, setZipError] = useState(false);
@@ -65,7 +79,7 @@ export default function GetAProPage() {
       const res = await fetch('/api/intake', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(form),
+        body: JSON.stringify({ ...form, handoff }),
       });
 
       const data = await res.json();

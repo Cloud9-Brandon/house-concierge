@@ -16,8 +16,25 @@ function splitUsage(text) {
   return { text: text.slice(0, m.index), usage };
 }
 
+function splitTools(text) {
+  const tools = [];
+  const out = text.replace(/%%%TOOL%%%(\{[^\n]*\})\n?/g, (_, j) => {
+    try { tools.push(JSON.parse(j)); } catch (e) { /* ignore */ }
+    return '';
+  });
+  return { text: out, tools };
+}
+
+const TOOL_LABELS = {
+  safety_triage: h => `🛡️ Safety triage flagged: ${h}`,
+  lookup_error_code: (d, f) => `🔎 Looked up error code ${d || ''}${f === false ? ' (not in table)' : ''}`.trim(),
+  estimate_repair_cost: () => '💲 Checked typical repair costs',
+};
+
 function parseResponse(raw) {
-  const { text, usage } = splitUsage(raw);
+  const split = splitUsage(raw);
+  const { text, tools } = splitTools(split.text);
+  const usage = split.usage;
   const fixMatch = text.match(/%%%FIX_START%%%([\s\S]*?)%%%FIX_END%%%/);
   const proMatch = text.match(/%%%PRO_START%%%([\s\S]*?)%%%PRO_END%%%/);
 
@@ -39,7 +56,7 @@ function parseResponse(raw) {
     } catch (e) { /* ignore */ }
   }
 
-  return { cleanText, fix, pro, usage };
+  return { cleanText, fix, pro, usage, tools };
 }
 
 // ---- Sub-components ----
@@ -130,8 +147,24 @@ function FixCard({ fix, onDidntWork }) {
   );
 }
 
-function ProCard({ pro }) {
+function ProCard({ pro, categoryName }) {
   const router = useRouter();
+  const [copied, setCopied] = useState(false);
+  const goPro = () => {
+    try {
+      sessionStorage.setItem('hc_handoff', JSON.stringify({
+        appliance: categoryName, summary: pro.summary || pro.reason,
+      }));
+    } catch (e) { /* ignore */ }
+    router.push('/get-a-pro');
+  };
+  const copySummary = async () => {
+    try {
+      await navigator.clipboard.writeText(`${categoryName}: ${pro.summary || pro.reason}`);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch (e) { /* ignore */ }
+  };
   return (
     <div className="bg-orange-50 border border-orange-200 rounded-xl p-5 mt-4 animate-fade-in-up">
       <div className="flex items-center gap-2 mb-3">
@@ -152,8 +185,19 @@ function ProCard({ pro }) {
           <span className="bg-orange-100 px-2 py-1 rounded-full">💰 {pro.estimated_cost}</span>
         )}
       </div>
+      {pro.summary && (
+        <div className="bg-white border border-orange-200 rounded-lg p-3 mb-4 text-sm text-gray-700">
+          <div className="flex items-center justify-between mb-1">
+            <span className="font-medium text-gray-900">Summary for the pro</span>
+            <button onClick={copySummary} className="text-xs text-brand-700 hover:underline">
+              {copied ? 'Copied ✓' : 'Copy'}
+            </button>
+          </div>
+          <p>{pro.summary}</p>
+        </div>
+      )}
       <button
-        onClick={() => router.push('/get-a-pro')}
+        onClick={goPro}
         className="w-full py-3 bg-brand-600 text-white rounded-lg font-medium hover:bg-brand-700 transition-colors"
       >
         Get Matched with a Pro →
@@ -319,6 +363,7 @@ export default function DiagnosePage() {
         fullText += decoder.decode(value, { stream: true });
         const displayText = fullText
           .replace(/%%%USAGE%%%[\s\S]*$/, '')
+          .replace(/%%%TOOL%%%[^\n]*\n?/g, '')
           .replace(/%%%FIX_START%%%[\s\S]*?(%%%FIX_END%%%)?/, '')
           .replace(/%%%PRO_START%%%[\s\S]*?(%%%PRO_END%%%)?/, '')
           .trim();
@@ -340,6 +385,7 @@ export default function DiagnosePage() {
           content: parsed.cleanText,
           ...(parsed.fix ? { fix: parsed.fix } : {}),
           ...(parsed.usage ? { usage: parsed.usage } : {}),
+          ...(parsed.tools?.length ? { tools: parsed.tools } : {}),
         };
         return updated;
       });
@@ -400,6 +446,7 @@ export default function DiagnosePage() {
         fullText += decoder.decode(value, { stream: true });
         const displayText = fullText
           .replace(/%%%USAGE%%%[\s\S]*$/, '')
+          .replace(/%%%TOOL%%%[^\n]*\n?/g, '')
           .replace(/%%%FIX_START%%%[\s\S]*?(%%%FIX_END%%%)?/, '')
           .replace(/%%%PRO_START%%%[\s\S]*?(%%%PRO_END%%%)?/, '')
           .trim();
@@ -421,6 +468,7 @@ export default function DiagnosePage() {
           content: parsed.cleanText,
           ...(parsed.fix ? { fix: parsed.fix } : {}),
           ...(parsed.usage ? { usage: parsed.usage } : {}),
+          ...(parsed.tools?.length ? { tools: parsed.tools } : {}),
         };
         return updated;
       });
@@ -591,6 +639,15 @@ export default function DiagnosePage() {
           <div className="space-y-4">
             {visibleMessages.map((msg, i) => (
               <div key={i} className="animate-fade-in-up">
+                {msg.tools && msg.tools.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5 mb-1.5" data-testid="tool-trace">
+                    {msg.tools.map((t, k) => (
+                      <span key={k} className="px-2 py-1 bg-brand-50 border border-brand-200 text-brand-800 rounded-full text-[11px]">
+                        {(TOOL_LABELS[t.tool] || (() => t.tool))(t.detail, t.found)}
+                      </span>
+                    ))}
+                  </div>
+                )}
                 <div className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                   <div
                     className={`max-w-[85%] px-4 py-3 rounded-2xl text-sm leading-relaxed ${
@@ -626,7 +683,7 @@ export default function DiagnosePage() {
               </div>
             )}
 
-            {pro && <ProCard pro={pro} />}
+            {pro && <ProCard pro={pro} categoryName={category.name} />}
 
             <div ref={chatEndRef} />
           </div>

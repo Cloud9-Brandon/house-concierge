@@ -5,8 +5,8 @@ const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt
 export async function POST(req) {
   try {
     const data = await req.json();
-    const { name, phone, zip, appliance, issue, timePreference } = data;
-    for (const v of [name, phone, zip, appliance, issue, timePreference]) {
+    const { name, phone, zip, appliance, issue, timePreference, handoff } = data;
+    for (const v of [name, phone, zip, appliance, issue, timePreference, handoff]) {
       if (v != null && (typeof v !== 'string' || v.length > 1000)) {
         return Response.json({ error: 'Invalid input' }, { status: 400 });
       }
@@ -43,6 +43,7 @@ export async function POST(req) {
               <tr><td style="padding: 8px; font-weight: bold;">ZIP Code</td><td style="padding: 8px;">${esc(zip)}</td></tr>
               <tr><td style="padding: 8px; font-weight: bold;">Appliance</td><td style="padding: 8px;">${esc(appliance)}</td></tr>
               <tr><td style="padding: 8px; font-weight: bold;">Issue</td><td style="padding: 8px;">${esc(issue)}</td></tr>
+              <tr><td style="padding: 8px; font-weight: bold;">AI diagnosis summary</td><td style="padding: 8px;">${esc(handoff || 'n/a')}</td></tr>
               <tr><td style="padding: 8px; font-weight: bold;">Preferred Time</td><td style="padding: 8px;">${esc(timePreference || 'Any')}</td></tr>
               <tr><td style="padding: 8px; font-weight: bold;">Submitted</td><td style="padding: 8px;">${new Date().toLocaleString('en-US', { timeZone: 'America/Chicago' })}</td></tr>
             </table>
