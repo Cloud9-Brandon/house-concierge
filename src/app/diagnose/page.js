@@ -666,7 +666,7 @@ export default function DiagnosePage() {
                         className="rounded-lg mb-2 max-h-48 object-cover"
                       />
                     )}
-                    {msg.content && <div>{msg.content}</div>}
+                    {msg.content && <div>{msg.content.replace(/\*\*(.+?)\*\*/g, '$1')}</div>}
                   </div>
                 </div>
                 {msg.usage && (
